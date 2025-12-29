@@ -1,0 +1,27 @@
+{
+  "name": "azurespot-restartbot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Friezer-85/AzureSpot-RestartBot.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Friezer-85/AzureSpot-RestartBot/issues"
+  },
+  "homepage": "https://github.com/Friezer-85/AzureSpot-RestartBot#readme",
+  "dependencies": {
+    "@azure/arm-compute": "^23.2.0",
+    "@azure/identity": "^4.13.0",
+    "axios": "^1.13.2",
+    "dotenv": "^17.2.3"
+  }
+}
