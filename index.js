@@ -7,7 +7,8 @@ const axios = require("axios");
 const config = {
     rg: process.env.AZURE_RESOURCE_GROUP,
     vm: process.env.AZURE_VM_NAME,
-    interval: (process.env.CHECK_INTERVAL_SECONDS || 60) * 1000
+    interval: (process.env.CHECK_INTERVAL_SECONDS || 60) * 1000,
+    grafanaUri : process.env.GRAFANA_URI 
 };
 
 console.log("🤖 Spot Bot Initialized.");
@@ -66,7 +67,6 @@ async function checkAndAct() {
 
     } catch (error) {
         console.error("\n❌ Azure API error:", error.message);
-        // Don't spam Teams for a network err
     }
 }
 
@@ -95,44 +95,80 @@ async function startVM() {
 // --- CONNECTORS ---
 
 async function sendToGrafana(value) {
-    if (!process.env.GRAFANA_URI) return;
+    if (!config.grafanaUri) return;
 
-    // Graphite Format: metric.name value timestamp
-    const metricName = `azure.vm.${config.vm.replace(/[^a-zA-Z0-9]/g, '_')}.up`;
-    const timestamp = Math.floor(Date.now() / 1000);
-    const payload = `${metricName} ${value} ${timestamp}`;
+    // Clean the name (dots and dashes are ok, avoid spaces)
+    const cleanVmName = config.vm.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+    
+    const payload = [{
+        name: `azure.vm.${cleanVmName}.up`,
+        value: value,
+        time: Math.floor(Date.now() / 1000),
+        interval: config.interval / 1000
+    }];
 
     try {
-        await axios.post(process.env.GRAFANA_URI, payload, {
-            headers: {
-                'Authorization': `Bearer ${process.env.GRAFANA_TOKEN}`, // Bearer auth preferred, used on new tokens
-                'Content-Type': 'text/plain'
-            },
-            // Fallback auth Basic if Bearer (used for old tokens / Grafana versions)
+        await axios.post(config.grafanaUri, payload, {
             auth: {
                 username: process.env.GRAFANA_USER,
                 password: process.env.GRAFANA_TOKEN
+            },
+            // Forcing JSON to avoid the 415 error
+            headers: {
+                'Content-Type': 'application/json'
             }
         });
+        // console.log(`📊 Grafana pushed (JSON): ${value}`);
     } catch (error) {
+        console.error("⚠️ Grafana Error:", error.response ? error.response.status : error.message);
+        if (error.response && error.response.data) {
+            console.error("   Detail:", JSON.stringify(error.response.data));
+        }
     }
 }
 
 async function sendTeamsAlert(title, text, isError) {
     if (!process.env.TEAMS_WEBHOOK_URL) return;
 
-    const card = {
-        "@type": "MessageCard",
-        "themeColor": isError ? "FF0000" : "00FF00",
-        "summary": title,
-        "sections": [{ "activityTitle": title, "text": text }]
+    // --- ADAPTIVE CARD FORMAT (For Power Automate / Workflows) ---
+    const payload = {
+        "type": "message",
+        "attachments": [
+            {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                    "type": "AdaptiveCard",
+                    "version": "1.4",
+                    "msteams": { "width": "Full" },
+                    "body": [
+                        {
+                            "type": "Container",
+                            "items": [
+                                {
+                                    "type": "TextBlock",
+                                    "text": title,
+                                    "weight": "Bolder",
+                                    "size": "Medium",
+                                    "color": isError ? "Attention" : "Good" // "Attention" = Red, "Good" = Green (on some versions) or "Accent"
+                                },
+                                {
+                                    "type": "TextBlock",
+                                    "text": text,
+                                    "wrap": true
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }
+        ]
     };
 
     try {
-        await axios.post(process.env.TEAMS_WEBHOOK_URL, card);
-        console.log("📨 Teams message sent.");
+        await axios.post(process.env.TEAMS_WEBHOOK_URL, payload);
+        console.log("📨 Teams message sent (Adaptive Card).");
     } catch (error) {
-        console.error("Teams error:", error.message);
+        console.error("❌ Teams error:", error.response ? error.response.data : error.message);
     }
 }
 
